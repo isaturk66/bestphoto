@@ -1,4 +1,3 @@
-
 import os
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 from tkinter import Tk, Label, BOTH
@@ -11,29 +10,30 @@ from PIL import Image
 import torch.nn.functional as F
 from torchvision import datasets, transforms, models
 
-# Define the batch size, input size, and number of classes
+# Hyperparameters
 batch_size = 1
 input_size = (224, 224)
 num_classes = 2
 
 
+# Application parameters
 resolution = (1920, 1080)
+batch_index = 0
 
+# Path parameters
 path_to_model= "./training/2023_01_07_20_18_35/model_20_2023_01_07_22_04_19.pt"
 path_to_test_data = "D:/Workzone/Datasets/bestphoto/finaltestset"
 
+# Load the images into a list
+images = [f for f in os.listdir(path_to_test_data) if f.endswith('.png') or f.endswith('.jpg') or f.endswith('.jpeg')]
 
 # Define a transform to preprocess the data
 transform = transforms.Compose([transforms.Resize(input_size),
                             transforms.ToTensor(),
                             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
-# Load the images into a list
-images = [f for f in os.listdir(path_to_test_data) if f.endswith('.png') or f.endswith('.jpg') or f.endswith('.jpeg')]
-
-batch_index = 0
-
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 
 def set_parameter_requires_grad(model, feature_extracting):
     if feature_extracting:
@@ -47,13 +47,6 @@ def get_model():
     model_ft.fc = nn.Linear(num_ftrs, num_classes)
     return model_ft
     
-
-
-
-model = get_model().to(device)
-
-# Load the trained model weights
-model.load_state_dict(torch.load(path_to_model))
 
 
 
@@ -191,9 +184,17 @@ def calculate_datamap():
     return dataMap
 
 
+# Initialize the model
+model = get_model().to(device)
 
+# Load the trained model weights
+model.load_state_dict(torch.load(path_to_model))
+
+# Get the images
 dataMap = calculate_datamap()
 
+
+#Prepare the batches
 batches = []
 for key in tqdm(dataMap):
     batch =[]
@@ -218,8 +219,6 @@ keyboard.add_hotkey("left", previous, args=(frame,))
 
 # Start a new thread to listen for key presses in the background
 keyboard.start_recording()
-
-
 
 # Run the Tkinter event loop
 root.mainloop()
