@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
-from torchvision import datasets, transforms
+from torchvision import datasets, transforms, models
 from tqdm import tqdm
 import time
 import matplotlib.pyplot as plt
@@ -15,9 +16,8 @@ num_epochs = 150
 input_size = (224, 224)
 num_classes = 2
 learning_rate = 3e-4
-
-# Start the training timer
-training_start_time = time.time()
+weight_decay = 1e-4
+feature_extract = True
 
 # Define the paths to the training and validation data
 path_to_train_data = "D:/Workzone/Datasets/bestphoto/train"
@@ -37,42 +37,25 @@ transform = transforms.Compose([
 
 # Load the training data
 train_dataset = datasets.ImageFolder(root=path_to_train_data, transform=transform)
-
 train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
+
 # Load the validation data
 val_dataset = datasets.ImageFolder(root=path_to_validation_data, transform=transform)
 val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
-# Define the CNN classifier
-class CNNClassifier(nn.Module):
-    def __init__(self, input_size, num_classes):
-        super(CNNClassifier, self).__init__()
-        self.input_size = input_size
-        self.num_classes = num_classes
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=8, kernel_size=3, stride=1, padding=1)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding=1)
-        self.fc1 = nn.Linear(50176, 128)
-        self.fc2 = nn.Linear(128, num_classes)
-        self.softmax = nn.Softmax(dim=1)
-        
-    def forward(self, x):     
-        x = self.conv1(x)
-        x = self.pool(x)
-        x = self.conv2(x)   
-        x = self.pool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = self.fc2(x)
-        x = self.softmax(x)
-        return x
 
-# Create an instance of the CNN classifier
-model = CNNClassifier(input_size=input_size, num_classes=num_classes).to(device)
-
-# Define the loss function and optimizer
-criterion = nn.NLLLoss()
-optimizer = optim.Adam(model.parameters(), lr=learning_rate )
+def set_parameter_requires_grad(model, feature_extracting):
+    if feature_extracting:
+        for param in model.parameters():
+            param.requires_grad = False
+# Define the model
+def get_model():
+    model_ft = models.resnet18(pretrained=True)
+    set_parameter_requires_grad(model_ft, feature_extract)
+    num_ftrs = model_ft.fc.in_features
+    model_ft.fc = nn.Linear(num_ftrs, num_classes)
+    return model_ft
+    
 
 # Initialize empty lists for the training and validation losses
 train_losses = []
@@ -97,16 +80,13 @@ def train():
             optimizer.zero_grad()
             
             # Forward pass
-            log_probs = model(inputs)
-            
+            outputs = model(inputs)
             # Compute the loss
-            loss = criterion(log_probs, labels)
+            loss = criterion(outputs, labels)
             epoch_loss += loss.item()
-            
             # Backward pass
             loss.backward()
-            
-            # Update the weights
+            # Update the parameters
             optimizer.step()
             
         # Append the epoch loss to the training losses list
@@ -124,17 +104,23 @@ def train():
                 labels = labels.to(device)
 
                 # Forward pass
-                log_probs = model(inputs)
+                outputs = model(inputs)
+                # Apply softmax to the outputs
+                probs = F.softmax(outputs, dim=1)
 
                 # Compute the loss
-                loss = criterion(log_probs, labels)
+                loss = criterion(outputs, labels)
                 val_loss += loss.item()
-
-                _, predicted = torch.max(log_probs, 1)
  
-                # Update the correct and total count
+                # Get the predicted class
+                _, predicted = torch.max(outputs.data, 1)
+
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+
+                # Print the probability and prediction for each image
+                #for i in range(len(predicted)):
+                #    print(f'Prediction: {predicted[i]}, Probability: {probs[i][predicted[i]]:.4f}')
                 
             # Append the average validation loss to the validation losses list
             val_losses.append(val_loss / len(val_dataloader))
@@ -153,9 +139,9 @@ def train():
             # Format the time stamp as a string and save the model
             time_stamp = time.strftime("%Y_%m_%d_%H_%M_%S", now)
             torch.save(model.state_dict(), os.path.join(path_to_training_folder, f"model_{epoch+1}_{time_stamp}.pt"))
+            save_learning_curve_data(train_losses, val_losses, epoch+1)
             
             # Plot the learning curve
-            save_learning_curve_data(train_losses, val_losses, epoch+1)
 
 # Define the function to plot the learning curve
 def save_learning_curve_data(train_losses, val_losses, epoch):
@@ -195,7 +181,23 @@ def create_training_folder():
 
 
 if __name__ == "__main__":
+    global model
+    global criterion
+    global optimizer
+
+    # Create the training folder
     create_training_folder()
+
+    # Load the model to the correct device
+    model = get_model().to(device)
+
+    # Define the loss function and optimizer
+    criterion = nn.CrossEntropyLoss()
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+    # Start the timer
+    training_start_time = time.time()
+
     train()
     save_model()
     save_learning_curve_data(train_losses, val_losses, num_epochs)

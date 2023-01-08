@@ -3,7 +3,25 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from tqdm import tqdm
-from torchvision import datasets, transforms
+import argparse
+from torchvision import datasets, transforms, models
+
+def parse_args():
+    """Parse input arguments."""
+    parser = argparse.ArgumentParser(
+        description='Binary image classifier tool')
+    parser.add_argument('path',
+                       help='The path that contains image files',
+                        type=str)
+    args = parser.parse_args()
+    return args
+
+args = parse_args()
+path = args.path
+
+if(path == None):
+    print("Please specify the path to the image directory.")
+    exit()
 
 
 # Define the batch size, input size, and number of classes
@@ -21,38 +39,28 @@ transform = transforms.Compose([
 
 # Load the test data
 path_to_test_data = "D:/Workzone/Datasets/bestphoto/test"
-path_to_model= "preview_clasifier_20230106-232755.pt"
+path_to_model= path
 
 test_dataset = datasets.ImageFolder(root=path_to_test_data, transform=transform)
 test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def set_parameter_requires_grad(model, feature_extracting):
+    if feature_extracting:
+        for param in model.parameters():
+            param.requires_grad = False
+# Define the model
+def get_model():
+    model_ft = models.resnet18(pretrained=True)
+    set_parameter_requires_grad(model_ft, True)
+    num_ftrs = model_ft.fc.in_features
+    model_ft.fc = nn.Linear(num_ftrs, num_classes)
+    return model_ft
+    
 
-# Define the CNN classifier
-class CNNClassifier(nn.Module):
-    def __init__(self, input_size, num_classes):
-        super(CNNClassifier, self).__init__()
-        self.input_size = input_size
-        self.num_classes = num_classes
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=8, kernel_size=3, stride=1, padding=1)
-        self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
-        self.conv2 = nn.Conv2d(in_channels=8, out_channels=16, kernel_size=3, stride=1, padding=1)
-        self.fc1 = nn.Linear(50176, 128)
-        self.fc2 = nn.Linear(128, num_classes)
-        
-    def forward(self, x):     
-        x = self.conv1(x)
-        x = self.pool(x)
-        x = self.conv2(x)   
-        x = self.pool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = self.fc2(x)
-        return x
 
-# Create an instance of the CNN classifier
-model = CNNClassifier(input_size=input_size, num_classes=num_classes).to(device)
+model = get_model().to(device)
 
 # Load the trained model weights
 model.load_state_dict(torch.load(path_to_model))
@@ -65,7 +73,6 @@ with torch.no_grad():
     for inputs, labels in tqdm(test_dataloader):
         # Move the data to the correct device
         inputs = inputs.to(device)
-        labels = labels.to(device)
 
         # Forward pass
         outputs = model(inputs)
